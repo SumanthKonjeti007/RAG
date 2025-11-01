@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Simple RAG System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .knowledge-base {
+            border: 1px solid #ccc;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .main-content {
+            display: flex;
+            gap: 20px;
+        }
+
+        .chat-section,
+        .chunks-section {
+            flex: 1;
+            border: 1px solid #ccc;
+            padding: 15px;
+            height: 600px;
+            overflow-y: auto;
+        }
+
+        .chat-input {
+            width: 100%;
+            padding: 10px;
+            margin-top: 10px;
+        }
+
+        .message {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .user-message {
+            background-color: #e3f2fd;
+            text-align: right;
+        }
+
+        .bot-message {
+            background-color: #f5f5f5;
+        }
+
+        .chunk {
+            border: 1px solid #ddd;
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .chunk-score {
+            font-weight: bold;
+            color: #666;
+        }
+
+        .upload-section {
+            margin: 10px 0;
+        }
+
+        button {
+            padding: 10px 15px;
+            margin: 5px;
+            cursor: pointer;
+        }
+
+        #fileList {
+            margin-top: 10px;
+        }
+
+        .file-item {
+            padding: 5px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .statement {
+            border: 1px solid #ddd;
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .evidence-rating {
+            font-weight: bold;
+            padding: 5px 10px;
+            border-radius: 3px;
+            display: inline-block;
+            margin-right: 10px;
+        }
+
+        .rating-high {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        /* 8-10: Green */
+        .rating-medium {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+
+        /* 5-7: Yellow */
+        .rating-low {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        /* 1-4: Red */
+        .risk-indicator {
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+
+        .risk-low {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .risk-medium {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+
+        .risk-high {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        .pii-warning {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Simple RAG System</h1>
+
+        <!-- Knowledge Base Section -->
+        <div class="knowledge-base">
+            <h3>Knowledge Base</h3>
+            <div class="upload-section">
+                <input type="file" id="fileInput" multiple accept=".pdf">
+                <button onclick="uploadFiles()">Upload PDFs</button>
+                <button onclick="loadFiles()">Refresh</button>
+            </div>
+            <div id="fileList">Loading...</div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Chat Section -->
+            <div class="chat-section">
+                <h3>Chat</h3>
+                <div id="chatMessages"></div>
+                <input type="text" id="chatInput" class="chat-input" placeholder="Ask a question..."
+                    onkeypress="handleKeyPress(event)">
+                <button onclick="sendMessage()">Send</button>
+            </div>
+
+            <!-- Retrieved Chunks Section -->
+            <div class="chunks-section">
+                <h3>Retrieved Chunks</h3>
+                <div id="chunksDisplay">No chunks retrieved yet.</div>
+            </div>
+        </div>
+
+        <!-- Hallucination Detection Section -->
+        <div class="hallucination-section" style="border: 1px solid #ccc; padding: 15px; margin-top: 20px;">
+            <h3>Hallucination Analysis</h3>
+            <div id="hallucinationDisplay">No analysis available yet.</div>
+        </div>
+    </div>
+
+    <script>
+        let currentChunks = [];
+
+        // Load file list on page load
+        window.onload = function () {
+            loadFiles();
+        };
+
+        async function loadFiles() {
+            try {
+                const response = await fetch('/files');
+                const data = await response.json();
+                const fileList = document.getElementById('fileList');
+
+                if (data.processed_files.length === 0) {
+                    fileList.innerHTML = '<div class="file-item">No files uploaded</div>';
+                } else {
+                    fileList.innerHTML = data.processed_files.map(file =>
+                        `<div class="file-item">${file}</div>`
+                    ).join('');
+                }
+                fileList.innerHTML += `<div style="margin-top: 10px; font-weight: bold;">Total: ${data.total_count} files</div>`;
+            } catch (error) {
+                document.getElementById('fileList').innerHTML = '<div class="file-item">Error loading files</div>';
+            }
+        }
+
+        async function uploadFiles() {
+            const fileInput = document.getElementById('fileInput');
+            console.log(fileInput);
+            const files = fileInput.files;
+
+            if (files.length === 0) {
+                alert('Please select PDF files to upload');
+                return;
+            }
+
+            const formData = new FormData();
+            for (let file of files) {
+                formData.append('files', file);
+            }
+
+            try {
+                const response = await fetch('/ingest', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+
+                alert(`Uploaded ${data.uploaded_files.length} files. Total processed: ${data.total_count}`);
+                loadFiles();
+                fileInput.value = '';
+            } catch (error) {
+                alert('Error uploading files: ' + error.message);
+            }
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const query = input.value.trim();
+
+            if (!query) return;
+
+            // Add user message to chat
+            addMessage(query, 'user');
+            input.value = '';
+
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        top_k: 5
+                    })
+                });
+
+                const data = await response.json();
+
+                // Check for PII detection
+                if (data.pii_detection && data.pii_detection.has_pii) {
+                    addMessage(`⚠️ PII Detected: ${data.pii_detection.detected_types.join(', ')}`, 'bot');
+                    displayPiiWarning(data.pii_detection);
+                } else {
+                    // Add bot response to chat
+                    addMessage(data.response, 'bot');
+
+                    // Update chunks display
+                    displayChunks(data.chunks_retrieved);
+
+                    // Update hallucination analysis
+                    displayHallucinationAnalysis(data.hallucination_analysis);
+                }
+
+            } catch (error) {
+                addMessage('Error: ' + error.message, 'bot');
+            }
+        }
+
+        function addMessage(text, type) {
+            const chatMessages = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}-message`;
+            messageDiv.innerHTML = text.replace(/\n/g, '<br>');
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function displayChunks(chunks) {
+            const chunksDisplay = document.getElementById('chunksDisplay');
+            currentChunks = chunks;
+
+            if (chunks.length === 0) {
+                chunksDisplay.innerHTML = '<div>No chunks retrieved for this query.</div>';
+                return;
+            }
+
+            chunksDisplay.innerHTML = chunks.map((chunk, index) => `
+                <div class="chunk">
+                    <div class="chunk-score">Score: ${chunk.score.toFixed(3)} | ${chunk.source_file}</div>
+                    <div style="font-size: 0.9em; color: #666; margin: 5px 0;">${chunk.heading_path || 'No heading path'}</div>
+                    <div style="font-size: 0.9em;">${chunk.text.substring(0, 300)}${chunk.text.length > 300 ? '...' : ''}</div>
+                </div>
+            `).join('');
+        }
+
+        function displayPiiWarning(piiDetection) {
+            const chunksDisplay = document.getElementById('chunksDisplay');
+            const hallucinationDisplay = document.getElementById('hallucinationDisplay');
+
+            chunksDisplay.innerHTML = `
+                <div class="pii-warning">
+                    <strong>⚠️ Personal Identifiable Information (PII) Detected</strong><br>
+                    Detected types: ${piiDetection.detected_types.join(', ')}<br>
+                    Risk level: ${piiDetection.risk_level}
+                </div>
+            `;
+
+            hallucinationDisplay.innerHTML = '<div>Hallucination analysis skipped due to PII detection.</div>';
+        }
+
+        function displayHallucinationAnalysis(analysis) {
+            const hallucinationDisplay = document.getElementById('hallucinationDisplay');
+
+            if (!analysis || !analysis.statements || analysis.statements.length === 0) {
+                hallucinationDisplay.innerHTML = '<div>No hallucination analysis available.</div>';
+                return;
+            }
+
+            const riskClass = `risk-${analysis.overall_hallucination_risk}`;
+
+            let html = `
+                <div style="margin-bottom: 15px;">
+                    <strong>Overall Hallucination Risk: </strong>
+                    <span class="risk-indicator ${riskClass}">${analysis.overall_hallucination_risk.toUpperCase()}</span>
+                </div>
+            `;
+
+            html += analysis.statements.map(statement => {
+                const rating = statement.evidence_rating;
+                let ratingClass = 'rating-low';
+                if (rating >= 8) ratingClass = 'rating-high';
+                else if (rating >= 5) ratingClass = 'rating-medium';
+
+                return `
+                    <div class="statement">
+                        <div style="margin-bottom: 8px;">
+                            <span class="evidence-rating ${ratingClass}">${rating}/10</span>
+                            <strong>Evidence Rating</strong>
+                        </div>
+                        <div style="margin-bottom: 8px; font-style: italic;">
+                            "${statement.statement}"
+                        </div>
+                        <div style="font-size: 0.9em; color: #666;">
+                            ${statement.explanation}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            hallucinationDisplay.innerHTML = html;
+        }
+    </script>
+</body>
+
+</html>
