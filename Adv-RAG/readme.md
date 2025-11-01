@@ -1144,6 +1144,7 @@ The result: **85% retrieval accuracy** vs 45% for basic RAG - a game-changing im
 - [LangChain RAG Documentation](https://python.langchain.com/docs/use_cases/question_answering/)
 - [Sentence Transformers](https://www.sbert.net/)
 - [Advanced RAG Patterns](https://github.com/langchain-ai/rag-from-scratch)
+- [Blog](https://www.decodingai.com/p/your-rag-is-wrong-heres-how-to-fix)
 
 ---
 
